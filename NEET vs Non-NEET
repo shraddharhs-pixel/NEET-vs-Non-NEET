@@ -72,50 +72,24 @@ def neet_rate(df):
 neet_percent = neet_rate(working_age)
 print(f"NEET individuals (15+): {neet_percent:.1f}%")
 
-# Function to categorize NEET individuals into age bins
-def agebins(row):
-   if not row["neet_status"]:
-       return None
-   if 15 <= row.get("q01_03") <= 20:
-       return "15 to 20"
-   if 20 < row.get("q01_03") <= 25:
-       return "21 to 25"
-   if 25 < row.get("q01_03") <= 30:
-       return "26 to 30"
-   if 30 < row.get("q01_03") <= 35:
-       return "31 to 35"
-   if 35 < row.get("q01_03") <= 40:
-       return "36 to 40"
-   if 40 < row.get("q01_03") <= 45:
-       return "41 to 45"
-   if 45 < row.get("q01_03") <= 50:
-       return "46 to 50"
-   if 50 < row.get("q01_03") <= 55:
-       return "51 to 55"
-   if 55 < row.get("q01_03") <= 60:
-       return "56 to 60"
-   else:
-       return"above 60"
+# AGE BINS
+bins = [14, 20, 25, 30, 35, 40, 45, 50, 55, 60, 120]
+labels = ["15-20", "21-25", "26-30", "31-35", "36-40", "41-45", "46-50", "51-55", "56-60", "Above 60"]
 
-# Apply age bins
-working_age["age_bins"] = working_age.apply(agebins, axis=1)
+working_age["age_bins"] = pd.cut(working_age["q01_03"], bins=bins, labels=labels)
 
-# Filter NEET only
 neet_only = working_age[working_age["neet_status"] == True]
-# Calculate NEET percentage by age group
-agepercentages = (neet_only.groupby("age_bins")["ind_wt"].sum() / neet_only["ind_wt"].sum() * 100)
+agepercentages = (neet_only.groupby("age_bins", observed=False)["ind_wt"].sum() / neet_only["ind_wt"].sum() * 100)
 
-# Function to label household head for NEET individuals
-def hh_head(row):
-   if row.get("q01_04", "") == "HEAD" and row["neet_status"]:
-       return f"{row['q01_02']} head"
-   return "Other"
-working_age["hh_head"] = working_age.apply(hh_head, axis=1)
-neet_only = working_age[working_age["neet_status"] == True]
+# Function to label household head
+def hh_head_all(row):
+    if str(row.get("q01_04", "")).strip().upper() == "HEAD":
+        # Get gender and format it nicely (e.g., "Male" or "Female")
+        gender = str(row.get("q01_02", "")).strip().capitalize()
+        return f"{gender} head"
+    return "Others"
 
-# Calculate NEET percentage by household head sex
-hhhpercentages = (neet_only.groupby("hh_head")["ind_wt"].sum() / neet_only["ind_wt"].sum() * 100)
-
+working_age["hh_head_status"] = working_age.apply(hh_head_all, axis=1)
 # NEET by sex
 def neetsex(row):
    if row["neet_status"]:
@@ -192,34 +166,29 @@ percent = (neet_only.groupby("neet_remit_abroad")["ind_wt"].sum()/ neet_only["in
 
 # REMITTANCE QUINTILES
 
-# Calculate total remittance for households
-remit1 = working_age["q14_21"].where(working_age["q14_21"] > 0)
-remit_total = remit1.fillna(0)
+# Create household-level remittance dataset
+hh_remit = working_age[["psu_number", "hh_number", "q14_21", "hhs_wt"]].copy()
+
+# Keep one record per household
+hh_remit = hh_remit.drop_duplicates(subset=["psu_number", "hh_number"])
 
 # Keep only households with positive remittance
-remit_df = working_age[working_age["q14_21"] > 0].copy()
-remit_df["remit_total"] = remit_df["q14_21"]
+hh_remit = hh_remit[hh_remit["q14_21"] > 0].copy()
 
-# Compute cumulative weighted share
-remit_df = remit_df.sort_values("remit_total")
-remit_df["cum_wt"] = remit_df["ind_wt"].cumsum() / remit_df["ind_wt"].sum()
-remit_df["remit_quintile"] = pd.cut(remit_df["cum_wt"], bins=[0, 0.2, 0.4, 0.6, 0.8, 1], labels=[1, 2, 3, 4, 5])
+hh_remit = hh_remit.sort_values("q14_21")
 
-working_age.loc[remit_df.index, "remittance_quintile"] = remit_df["remit_quintile"]
+# Compute cumulative weighted share using household weights
+hh_remit["cum_wt"] = hh_remit["hhs_wt"].cumsum()
+hh_remit["cum_share"] = hh_remit["cum_wt"] / hh_remit["hhs_wt"].sum()
 
-# Function to assign remittance quintile to NEETs receiving remittance
-def remittance_amount(row):
-    if not row["neet_status"]:
-        return None
-    if row.get("q14_15") not in ["YES", 1]:
-        return None
-    return row.get("remittance_quintile")
+# Create quintiles
+hh_remit["remittance_quintile"] = pd.cut(hh_remit["cum_share"], bins=[0, 0.2, 0.4, 0.6, 0.8, 1], labels=[1,2,3,4,5])
 
-working_age["neet_remittance_quintile"] = working_age.apply(remittance_amount, axis=1)
+# Merge back to individual dataset
+working_age = pd.merge(working_age, hh_remit[["psu_number", "hh_number", "remittance_quintile"]], on=["psu_number", "hh_number"], how="left")
 
 # NEET share by remittance quintile
 neet_only = working_age[working_age["neet_status"]]
-remittance_share = (neet_only.groupby("neet_remittance_quintile")["ind_wt"].sum() / neet_only["ind_wt"].sum() * 100)
 
 # FAMILY CONSUMPTION
 # Use existing quintile of per capita consumption from dataset
@@ -261,15 +230,25 @@ other_assets = pd.to_numeric(working_age["q13_35"], errors="coerce").where(worki
 # Sum all assets to get total_assets
 working_age["total_assets"] = dwelling + land + property_asset + other_assets
 
+hh_assets = working_age[["psu_number", "hh_number", "total_assets", "hhs_wt"]].copy()
+
+# Keep one row per household
+hh_assets = hh_assets.drop_duplicates(subset=["psu_number", "hh_number"])
+
 # Keep only households with positive assets
-assets_positive = working_age[working_age["total_assets"] > 0].copy()
-assets_positive = assets_positive.sort_values("total_assets")
+hh_assets = hh_assets[hh_assets["total_assets"] > 0].copy()
 
-assets_positive["cum_wt"] = assets_positive["ind_wt"].cumsum()
-assets_positive["cum_share"] = assets_positive["cum_wt"] / assets_positive["ind_wt"].sum()
-assets_positive["asset_quintile"] = pd.cut(assets_positive["cum_share"], bins=[0, 0.2, 0.4, 0.6, 0.8, 1], labels=[1,2,3,4,5])
+hh_assets = hh_assets.sort_values("total_assets")
 
-working_age.loc[assets_positive.index, "asset_quintile"] = assets_positive["asset_quintile"]
+# Compute cumulative weighted share using household weights
+hh_assets["cum_wt"] = hh_assets["hhs_wt"].cumsum()
+hh_assets["cum_share"] = hh_assets["cum_wt"] / hh_assets["hhs_wt"].sum()
+
+# Create quintiles
+hh_assets["asset_quintile"] = pd.cut(hh_assets["cum_share"], bins=[0, 0.2, 0.4, 0.6, 0.8, 1], labels=[1,2,3,4,5])
+
+# Merge back to individual dataset
+working_age = pd.merge(working_age, hh_assets[["psu_number", "hh_number", "asset_quintile"]], on=["psu_number", "hh_number"], how="left")
 
 # NEET share by asset quintile
 neet_only = working_age[working_age["neet_status"]]
@@ -393,11 +372,19 @@ def neet_within_quintile(df, quintile_col):
 
 print ("\nCOMPARISON TABLE")
 
+print("\nHousehold Head Comparison (%):")
+hh_comparison = compare_characteristics(working_age, "hh_head_status")
+print(hh_comparison)
+
 print("\nMarital Status Comparison (%):")
 print(compare_characteristics(working_age, "q01_05"))
 
 print("\nGender comparison (%):")
 print(compare_characteristics(working_age, "q01_02"))
+
+print("\nAge Bins Comparison(%):")
+age_comparison = compare_characteristics(working_age, "age_bins")
+print(age_comparison)
 
 print("\nEmployment classification (%): ")
 print(compare_characteristics(working_age, "classify1"))
@@ -418,9 +405,9 @@ print("\nNEET vs Non-NEET within PCEP Quintile (%):")
 print(neet_within_quintile(working_age, "pcep_quintile"))
 
 summary_avg = working_age.groupby("labor_status_compare").apply(lambda x: pd.Series({
-"Avg Age": (x["q01_03"] * x["ind_wt"]).sum() / x["ind_wt"].sum(),
-"Avg child number": (x["hh_children_count"]* x["ind_wt"]).sum()/ x["ind_wt"].sum(),
-"Avg PCEP Consumption": (x["pcep"] * x["ind_wt"]).sum() / x["ind_wt"].sum()}))
+    "Avg Age": (x["q01_03"] * x["ind_wt"]).sum() / x["ind_wt"].sum(),
+    "Avg child number": (x["hh_children_count"] * x["ind_wt"]).sum() / x["ind_wt"].sum(),
+    "Avg PCEP Consumption": (x["pcep"] * x["ind_wt"]).sum() / x["ind_wt"].sum()}), include_groups=False)
 
 print("\nAverages by Labor Group:")
 print(summary_avg.round(1))

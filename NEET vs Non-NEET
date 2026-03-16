@@ -92,21 +92,19 @@ working_age["hh_head_status"] = working_age.apply(hh_head_all, axis=1)
 working_age["hh_head_status"] = working_age.apply(hh_head_all, axis=1)
 
 # REMITTANCE QUINTILES
-hh_remit = working_age[["psu_number", "hh_number", "q14_21", "hhs_wt"]].copy()
-hh_remit = hh_remit.drop_duplicates(subset=["psu_number", "hh_number"])
-hh_remit = hh_remit[hh_remit["q14_21"] > 0].copy()
+hh_remit = working_age[["psu_number","hh_number","q14_21","hhs_wt"]].copy()
+hh_remit = hh_remit.drop_duplicates(subset=["psu_number","hh_number"])
 
-hh_remit = hh_remit.sort_values("q14_21")
+hh_remit["q14_21"] = hh_remit["q14_21"].fillna(0)
 
-# Compute cumulative weighted share using household weights
+hh_remit = hh_remit.sort_values("q14_21").reset_index(drop=True)
+
 hh_remit["cum_wt"] = hh_remit["hhs_wt"].cumsum()
 hh_remit["cum_share"] = hh_remit["cum_wt"] / hh_remit["hhs_wt"].sum()
 
-# Create quintiles
-hh_remit["remittance_quintile"] = pd.cut(hh_remit["cum_share"], bins=[0, 0.2, 0.4, 0.6, 0.8, 1], labels=[1,2,3,4,5])
+hh_remit["remittance_quintile"] = pd.cut( hh_remit["cum_share"], bins=[-0.001,0.2,0.4,0.6,0.8,1], labels=[1,2,3,4,5])
 
-# Merge back to individual dataset
-working_age = pd.merge(working_age, hh_remit[["psu_number", "hh_number", "remittance_quintile"]], on=["psu_number", "hh_number"], how="left")
+working_age = pd.merge(working_age, hh_remit[["psu_number","hh_number","remittance_quintile"]], on=["psu_number","hh_number"], how="left")
 
 # FAMILY CONSUMPTION
 # Use existing quintile of per capita consumption from dataset

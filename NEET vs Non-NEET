@@ -180,7 +180,7 @@ def educationstatus(row):
        return "Currently attending/Other"
 working_age["edu_completed"] = working_age.apply(educationstatus, axis=1)
 
-# CHILDERN
+# CHILDREN
 # Identify children aged 0–3 in personal dataset
 personal["child_0_3"] = personal["q01_03"].between(0, 3)
 
@@ -324,3 +324,62 @@ summary_avg = working_age.groupby("labor_status_compare").apply(lambda x: pd.Ser
 
 print("\nAverages by Labor Group:")
 print(summary_avg.round(1))
+
+import os
+import re
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# style
+sns.set(style="whitegrid")
+plt.rcParams.update({'figure.figsize': (8,5)})
+
+# make plots folder
+os.makedirs("plots", exist_ok=True)
+
+# safe filenames
+def safe_filename(s):
+    return re.sub(r"[^\w\d\-]", "_", s)
+
+# columns to compare NEET vs Non-NEET
+comparison_columns = [
+    ("hh_head_status", "Household Head Status"),
+    ("q01_05", "Marital Status"),
+    ("q01_02", "Gender"),
+    ("age_bins", "Age Group"),
+    ("ad_4", "Rural/Urban"),
+    ("prov", "Province"),
+    ("domain", "Analytical domain"),
+    ("poor", "Poverty Status"),
+    ("pcep_vs_mean", "Consumption vs Mean"),
+    ("pcep_quintile", "Consumption Quintiles"),
+    ("asset_quintile", "Asset Quintiles"),
+    ("remit_status_detailed", "Remittance Status"),
+    ("remittance_quintile", "Remittance Quintile"),
+    ("q07_04", "School Attendance"),
+    ("edu_level_cat", "Education Level"),
+    ("hh_has_child_0_3", "Kids 0‑3"),
+    ("has_kid_u18", "Kids <18")
+]
+
+# loop through variables
+for col, title in comparison_columns:
+    cross = pd.crosstab(
+        working_age[col],
+        working_age["labor_status_compare"],  # NEET vs Non-NEET
+        values=working_age["ind_wt"],
+        aggfunc='sum'
+    ).fillna(0)
+    
+    cross_pct = cross.div(cross.sum(axis=1), axis=0) * 100
+    
+    ax = cross_pct.plot(kind="bar", stacked=False, colormap="Set2")
+    plt.title(f"{title} vs NEET Status (%)")
+    plt.ylabel("Percentage")
+    plt.xlabel(title)
+    plt.xticks(rotation=45)
+    plt.legend(title="NEET Status", bbox_to_anchor=(1.02, 1), loc="upper left")
+    plt.tight_layout()
+    
+    plt.savefig(f"plots/{safe_filename(title)}_NEET.png")
+    plt.close()

@@ -345,6 +345,38 @@ comparison_columns = [
     ("child_app2", "Approach 2 (Spouse only)"),
     ("child_app3", "Approach 3 (Spouse + kids <18 strict)")]
 
+fig, ax = plt.subplots(figsize=(8,5))
+
+# Plot stacked bar
+age_edu_pct.plot(kind="bar", stacked=True, colormap="Set3", ax=ax)
+
+# Add percentages inside the bars
+for container in ax.containers:
+    for bar in container:
+        height = bar.get_height()
+        if height > 3:  # Only label bars >3% to avoid clutter
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_y() + height / 2,
+                f"{height:.0f}%",
+                ha='center',
+                va='center',
+                fontsize=8
+            )
+
+# Titles and labels
+ax.set_title("Education Status by Age Group (%)")
+ax.set_ylabel("Percentage (%)")
+ax.set_xlabel("Age Group")
+ax.set_ylim(0, 100)
+ax.set_xticklabels(ax.get_xticklabels(), rotation=30, ha='right')
+
+# Legend
+ax.legend(title="Education Level", bbox_to_anchor=(1.02, 1), loc="upper left")
+
+plt.tight_layout()
+plt.savefig("neetvsnonneet/education_age.png")
+plt.close(fig)
 
 # define order of labor statuses
 for col, title in comparison_columns:
